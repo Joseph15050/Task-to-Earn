@@ -276,7 +276,7 @@ async def handle_screenshot(update: Update, context: ContextTypes.DEFAULT_TYPE):
         public_proof_url = supabase.storage.from_("task-proofs").get_public_url(file_path)
 
         # AI Verification using Gemini
-        model = genai.GenerativeModel('gemini-2.5-flash')
+        model = genai.GenerativeModel('gemini-3.5-flash-lite')
         prompt = f"""
         Evaluate if this screenshot proves social media action completion.
         Required Actions: {cmp['required_actions']}
