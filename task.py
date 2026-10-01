@@ -259,7 +259,7 @@ async def handle_screenshot(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except Exception as e:
         print(f"Error checking duplicates: {e}")
 
-    await update.message.reply_text("⏳ Processing screenshot & evaluating with AI...")
+    await update.message.reply_text("⏳ Processing screenshot...")
 
     try:
         # Download image from Telegram
