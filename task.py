@@ -133,7 +133,7 @@ async def withdraw(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if not wallet:
         await update.message.reply_text(
-            "⚠️ You have not set a USDT wallet address yet.\nSend `/setwallet <YOUR_ADDRESS>` first.",
+            "⚠️ You have not set a USDT BEP20 wallet address yet.\nSend `/setwallet <YOUR_ADDRESS>` first.",
             parse_mode="Markdown"
         )
         return
