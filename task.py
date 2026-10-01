@@ -66,7 +66,7 @@ async def set_wallet(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     if not context.args:
         await update.message.reply_text(
-            "⚠️ **Usage:** `/setwallet <YOUR_USDT_ADDRESS>`\n\nExample: `/setwallet 0x1234...5678`",
+            "⚠️ **Usage:** `/setwallet <YOUR_USDT_ADDRESS BEP20>`\n\nExample: `/setwallet 0x1234...5678`",
             parse_mode="Markdown"
         )
         return
