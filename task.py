@@ -178,14 +178,28 @@ async def campaigns_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("Choose a campaign to perform:", reply_markup=reply_markup)
 
 async def withdraw(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Process withdrawal requests displaying OPay number and account name."""
-    user_id = update.effective_user.id
+    """Queue a user's withdrawal request in the users table for admin review."""
+    user = update.effective_user
+    user_id = user.id
+    
     res = supabase.table("users").select("*").eq("telegram_id", user_id).single().execute()
     u = res.data or {}
 
     naira_bal = float(u.get("usdt_balance") or 0.00)
     opay_acc = u.get("opay_account_number")
     opay_name = u.get("opay_account_name")
+    current_status = u.get("withdrawal_status") or "NONE"
+
+    # Prevent submitting a new request if one is already pending
+    if current_status == "PENDING":
+        pending_amt = float(u.get("pending_withdrawal_amount") or 0.00)
+        await update.message.reply_text(
+            f"⏳ **Withdrawal Already Pending**\n\n"
+            f"You currently have a pending payout request of `₦{pending_amt:,.2f}`.\n"
+            f"Please wait for your previous request to be processed before requesting another.",
+            parse_mode="Markdown"
+        )
+        return
 
     if not opay_acc or opay_acc == "Not Set" or not opay_name:
         await update.message.reply_text(
@@ -207,16 +221,20 @@ async def withdraw(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         return
 
-    # Reset balance and trigger withdrawal workflow
-    supabase.table("users").update({"usdt_balance": 0.00}).eq("telegram_id", user_id).execute()
-    
+    # Update columns in the users table to flag the pending request
+    supabase.table("users").update({
+        "usdt_balance": 0.00,
+        "pending_withdrawal_amount": naira_bal,
+        "withdrawal_status": "PENDING"
+    }).eq("telegram_id", user_id).execute()
+
     await update.message.reply_text(
         f"✅ **Withdrawal Requested!**\n\n"
         f"• **Amount:** `₦{naira_bal:,.2f}`\n"
         f"• **Bank:** OPay\n"
         f"• **Account Number:** `{opay_acc}`\n"
         f"• **Account Name:** `{opay_name}`\n\n"
-        f"Your payout request has been queued for manual confirmation and processing.",
+        f"Your payout request has been registered in the database for batch processing.",
         parse_mode="Markdown"
     )
 
