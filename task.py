@@ -296,13 +296,23 @@ async def handle_screenshot(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return
 
     # 2. Check for existing submission
+        # 2. Check for existing VERIFIED or PENDING submission
     try:
-        existing = supabase.table("submissions").select("*").eq("telegram_id", user_id).eq("campaign_id", campaign_id).execute().data
+        existing = (
+            supabase.table("submissions")
+            .select("*")
+            .eq("telegram_id", user_id)
+            .eq("campaign_id", campaign_id)
+            .in_("status", ["VERIFIED", "PENDING"])
+            .execute()
+            .data
+        )
         if existing:
-            await update.message.reply_text("⚠️ You have already submitted proof for this campaign.")
+            await update.message.reply_text("⚠️ You already have an active or approved submission for this campaign.")
             return
     except Exception as e:
         print(f"Error checking duplicates: {e}")
+
 
     await update.message.reply_text("⏳ Processing screenshot...")
 
