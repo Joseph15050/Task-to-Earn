@@ -355,14 +355,17 @@ async def handle_screenshot(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         status = "VERIFIED" if (is_valid and confidence >= 0.85) else "REJECTED"
 
-        # Record submission in DB
-        supabase.table("submissions").insert({
-            "telegram_id": user_id,
-            "campaign_id": campaign_id,
-            "proof_image_url": public_proof_url,
-            "status": status,
-            "ai_feedback": reason
-        }).execute()
+        # Update existing or insert new submission
+supabase.table("submissions").upsert(
+    {
+        "telegram_id": user_id,
+        "campaign_id": campaign_id,
+        "proof_image_url": public_proof_url,
+        "status": status,
+        "ai_feedback": reason
+    },
+    on_conflict="telegram_id, campaign_id"
+).execute()
 
         # Update User Rewards
         if status == "VERIFIED":
