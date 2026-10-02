@@ -2,6 +2,8 @@ import os
 import json
 import uuid
 import traceback
+import threading
+from http.server import HTTPServer, BaseHTTPRequestHandler
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (
     ApplicationBuilder, CommandHandler, CallbackQueryHandler, 
@@ -28,6 +30,25 @@ WITHDRAWAL_THRESHOLD = 10.00  # Minimum USDT required to request withdrawal
 # Initialize Clients
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 genai.configure(api_key=GEMINI_API_KEY)
+
+
+# --- DUMMY HTTP SERVER FOR RENDER HEALTH CHECKS ---
+
+class HealthCheckHandler(BaseHTTPRequestHandler):
+    """Simple handler to satisfy Render's port binding checks."""
+    def do_GET(self):
+        self.send_response(200)
+        self.end_headers()
+        self.wfile.write(b"Bot is alive")
+
+    def log_message(self, format, *args):
+        # Suppress standard HTTP request logging in stdout
+        return
+
+def run_health_server():
+    port = int(os.environ.get("PORT", 8080))
+    server = HTTPServer(("0.0.0.0", port), HealthCheckHandler)
+    server.serve_forever()
 
 
 # --- HELPER FUNCTIONS ---
@@ -299,7 +320,7 @@ async def handle_screenshot(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         public_proof_url = supabase.storage.from_("task-proofs").get_public_url(file_path)
 
-        # AI Verification using Gemini (Updated Model Name)
+        # AI Verification using Gemini
         model = genai.GenerativeModel('gemini-3.5-flash-lite')
         prompt = f"""
         Evaluate if this screenshot proves social media action completion.
@@ -358,7 +379,7 @@ async def handle_screenshot(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except Exception as err:
         print("ERROR IN HANDLE_SCREENSHOT:", traceback.format_exc())
         await update.message.reply_text(
-            f"⚠️ Verification error: `{str(err)}`\nPlease re-upload your screenshot.",
+            f"⚠️️ Verification error: `{str(err)}`\nPlease re-upload your screenshot.",
             parse_mode="Markdown"
         )
 
@@ -366,6 +387,9 @@ async def handle_screenshot(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # --- MAIN ENTRYPOINT ---
 
 if __name__ == "__main__":
+    # Start background HTTP server thread for Render health checks
+    threading.Thread(target=run_health_server, daemon=True).start()
+
     app = ApplicationBuilder().token(TELEGRAM_BOT_TOKEN).build()
 
     # Register Command Handlers
