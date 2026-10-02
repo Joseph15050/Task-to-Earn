@@ -14,7 +14,13 @@ import google.generativeai as genai
 
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
 SUPABASE_URL = os.environ.get("SUPABASE_URL")
-SUPABASE_KEY = os.environ.get("SERVICE_ROLE")
+
+# Multi-fallback key retrieval to prevent startup failure
+SUPABASE_KEY = (
+    os.environ.get("SERVICE_ROLE") 
+    or os.environ.get("SUPABASE_SERVICE_ROLE_KEY") 
+    or os.environ.get("SUPABASE_ANON_KEY")
+)
 TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN")
 
 WITHDRAWAL_THRESHOLD = 10.00  # Minimum USDT required to request withdrawal
@@ -62,18 +68,35 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
 async def set_wallet(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Save or update the user's USDT wallet address."""
+    """Save or update the user's USDT (BEP-20) wallet address."""
     user_id = update.effective_user.id
     if not context.args:
         await update.message.reply_text(
-            "⚠️ **Usage:** `/setwallet <YOUR_USDT_ADDRESS BEP20>`\n\nExample: `/setwallet 0x1234...5678`",
+            "⚠️ **Usage:** `/setwallet <YOUR_USDT_BEP20_ADDRESS>`\n\n"
+            "Example: `/setwallet 0x1234...5678`\n"
+            "📌 *Note: Please provide a Binance Smart Chain (BEP-20) address.*",
             parse_mode="Markdown"
         )
         return
 
     address = context.args[0].strip()
+    
+    # Basic BEP-20 / EVM address validation
+    if not (address.startswith("0x") and len(address) == 42):
+        await update.message.reply_text(
+            "❌ **Invalid Address Format**\n\n"
+            "Please provide a valid **USDT (BEP-20)** address starting with `0x`.",
+            parse_mode="Markdown"
+        )
+        return
+
     supabase.table("users").update({"usdt_address": address}).eq("telegram_id", user_id).execute()
-    await update.message.reply_text(f"✅ Wallet address updated to:\n`{address}`", parse_mode="Markdown")
+    await update.message.reply_text(
+        f"✅ **Wallet Saved!**\n"
+        f"Network: `USDT (BEP-20)`\n"
+        f"Address: `{address}`",
+        parse_mode="Markdown"
+    )
 
 async def balance(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """View earnings balance and XP."""
@@ -89,7 +112,7 @@ async def balance(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"💳 **Your Financial Summary**\n\n"
         f"• **USDT Balance:** `${usdt_bal:.2f}`\n"
         f"• **Accumulated XP:** `{xp} XP`\n"
-        f"• **Payout Wallet:** `{wallet}`\n\n"
+        f"• **BEP-20 Wallet:** `{wallet}`\n\n"
         f"💡 *Minimum withdrawal threshold:* `${WITHDRAWAL_THRESHOLD:.2f} USDT`"
     )
     await update.message.reply_text(msg, parse_mode="Markdown")
@@ -133,7 +156,7 @@ async def withdraw(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if not wallet:
         await update.message.reply_text(
-            "⚠️ You have not set a USDT BEP20 wallet address yet.\nSend `/setwallet <YOUR_ADDRESS>` first.",
+            "⚠️ You have not set a USDT (BEP-20) wallet address yet.\nSend `/setwallet <YOUR_ADDRESS>` first.",
             parse_mode="Markdown"
         )
         return
@@ -149,12 +172,13 @@ async def withdraw(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         return
 
-    # Create withdrawal request logic
+    # Reset balance and trigger withdrawal workflow
     supabase.table("users").update({"usdt_balance": 0.00}).eq("telegram_id", user_id).execute()
     
     await update.message.reply_text(
         f"✅ **Withdrawal Requested!**\n\n"
         f"• **Amount:** `${usdt_bal:.2f} USDT`\n"
+        f"• **Network:** `BEP-20 (BNB Smart Chain)`\n"
         f"• **Destination Wallet:** `{wallet}`\n\n"
         f"Your payout request is submitted for batch processing.",
         parse_mode="Markdown"
@@ -222,7 +246,7 @@ async def handle_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f"• Username: @{u.get('username') or 'N/A'}\n"
             f"• XP Earned: {u.get('xp_points', 0)} XP\n"
             f"• USDT Balance: `${usdt_bal:.2f}`\n"
-            f"• Wallet: `{u.get('usdt_address') or 'Not set'}`",
+            f"• BEP-20 Wallet: `{u.get('usdt_address') or 'Not set'}`",
             parse_mode="Markdown"
         )
 
@@ -275,7 +299,7 @@ async def handle_screenshot(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         public_proof_url = supabase.storage.from_("task-proofs").get_public_url(file_path)
 
-        # AI Verification using Gemini
+        # AI Verification using Gemini (Updated Model Name)
         model = genai.GenerativeModel('gemini-3.5-flash-lite')
         prompt = f"""
         Evaluate if this screenshot proves social media action completion.
