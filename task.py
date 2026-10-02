@@ -25,7 +25,7 @@ SUPABASE_KEY = (
 )
 TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN")
 
-WITHDRAWAL_THRESHOLD = 10.00  # Minimum USDT required to request withdrawal
+WITHDRAWAL_THRESHOLD_NGN = 1000.00  # Minimum ₦1,000 required to request withdrawal
 
 # Initialize Clients
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
@@ -42,7 +42,6 @@ class HealthCheckHandler(BaseHTTPRequestHandler):
         self.wfile.write(b"Bot is alive")
 
     def log_message(self, format, *args):
-        # Suppress standard HTTP request logging in stdout
         return
 
 def run_health_server():
@@ -88,53 +87,66 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         reply_markup=reply_markup
     )
 
-async def set_wallet(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Save or update the user's USDT (BEP-20) wallet address."""
+async def set_account(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Save or update the user's OPay number and account name."""
     user_id = update.effective_user.id
-    if not context.args:
-        await update.message.reply_text(
-            "⚠️ **Usage:** `/setwallet <YOUR_USDT_BEP20_ADDRESS>`\n\n"
-            "Example: `/setwallet 0x1234...5678`\n"
-            "📌 *Note: Please provide a Binance Smart Chain (BEP-20) address.*",
-            parse_mode="Markdown"
-        )
-        return
-
-    address = context.args[0].strip()
     
-    # Basic BEP-20 / EVM address validation
-    if not (address.startswith("0x") and len(address) == 42):
+    if len(context.args) < 2:
         await update.message.reply_text(
-            "❌ **Invalid Address Format**\n\n"
-            "Please provide a valid **USDT (BEP-20)** address starting with `0x`.",
+            "⚠️ **Usage:** `/setaccount <OPAY_NUMBER> <ACCOUNT_NAME>`\n\n"
+            "Example: `/setaccount 8012345678 John Doe`\n"
+            "📌 *Provide your 10-digit OPay number followed by your full account name.*",
             parse_mode="Markdown"
         )
         return
 
-    supabase.table("users").update({"usdt_address": address}).eq("telegram_id", user_id).execute()
+    account_no = context.args[0].strip()
+    account_name = " ".join(context.args[1:]).strip()
+    
+    # Basic Nigerian phone/account number validation
+    clean_acc = account_no.replace("+234", "0").replace(" ", "")
+    if clean_acc.startswith("0") and len(clean_acc) == 11:
+        clean_acc = clean_acc[1:]
+
+    if not (clean_acc.isdigit() and len(clean_acc) == 10):
+        await update.message.reply_text(
+            "❌ **Invalid Account Number**\n\n"
+            "Please provide a valid 10-digit **OPay Account Number**.",
+            parse_mode="Markdown"
+        )
+        return
+
+    supabase.table("users").update({
+        "usdt_address": clean_acc,
+        "opay_account_name": account_name
+    }).eq("telegram_id", user_id).execute()
+
     await update.message.reply_text(
-        f"✅ **Wallet Saved!**\n"
-        f"Network: `USDT (BEP-20)`\n"
-        f"Address: `{address}`",
+        f"✅ **OPay Account Saved!**\n\n"
+        f"• **Bank:** OPay\n"
+        f"• **Account Number:** `{clean_acc}`\n"
+        f"• **Account Name:** `{account_name}`",
         parse_mode="Markdown"
     )
 
 async def balance(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """View earnings balance and XP."""
+    """View earnings balance, XP, and OPay payout details."""
     user_id = update.effective_user.id
     res = supabase.table("users").select("*").eq("telegram_id", user_id).single().execute()
     u = res.data or {}
 
-    usdt_bal = float(u.get("usdt_balance") or 0.00)
+    naira_bal = float(u.get("usdt_balance") or 0.00)
     xp = u.get("xp_points", 0)
-    wallet = u.get("usdt_address") or "Not Set"
+    opay_acc = u.get("usdt_address") or "Not Set"
+    opay_name = u.get("opay_account_name") or "Not Set"
 
     msg = (
         f"💳 **Your Financial Summary**\n\n"
-        f"• **USDT Balance:** `${usdt_bal:.2f}`\n"
+        f"• **Naira Balance:** `₦{naira_bal:,.2f}`\n"
         f"• **Accumulated XP:** `{xp} XP`\n"
-        f"• **BEP-20 Wallet:** `{wallet}`\n\n"
-        f"💡 *Minimum withdrawal threshold:* `${WITHDRAWAL_THRESHOLD:.2f} USDT`"
+        f"• **OPay Account Number:** `{opay_acc}`\n"
+        f"• **OPay Account Name:** `{opay_name}`\n\n"
+        f"💡 *Minimum withdrawal threshold:* `₦{WITHDRAWAL_THRESHOLD_NGN:,.2f}`"
     )
     await update.message.reply_text(msg, parse_mode="Markdown")
 
@@ -150,13 +162,12 @@ async def campaigns_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         verified_cnt = get_verified_submissions_count(cmp['id'])
         max_limit = cmp.get('max_participants')
         
-        # Omit filled campaigns from command listing
         if max_limit and verified_cnt >= max_limit:
             continue
 
         spots_label = f" ({verified_cnt}/{max_limit} spots)" if max_limit else ""
         keyboard.append([
-            InlineKeyboardButton(f"{cmp['title']} (+${cmp['reward_usdt']}){spots_label}", callback_data=f"cmp_{cmp['id']}")
+            InlineKeyboardButton(f"{cmp['title']} (+₦{cmp.get('reward_usdt', 0)}){spots_label}", callback_data=f"cmp_{cmp['id']}")
         ])
 
     if not keyboard:
@@ -167,28 +178,31 @@ async def campaigns_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("Choose a campaign to perform:", reply_markup=reply_markup)
 
 async def withdraw(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Process withdrawal requests against the $10 threshold."""
+    """Process withdrawal requests displaying OPay number and account name."""
     user_id = update.effective_user.id
     res = supabase.table("users").select("*").eq("telegram_id", user_id).single().execute()
     u = res.data or {}
 
-    usdt_bal = float(u.get("usdt_balance") or 0.00)
-    wallet = u.get("usdt_address")
+    naira_bal = float(u.get("usdt_balance") or 0.00)
+    opay_acc = u.get("usdt_address")
+    opay_name = u.get("opay_account_name")
 
-    if not wallet:
+    if not opay_acc or opay_acc == "Not Set" or not opay_name:
         await update.message.reply_text(
-            "⚠️ You have not set a USDT (BEP-20) wallet address yet.\nSend `/setwallet <YOUR_ADDRESS>` first.",
+            "⚠️ **Missing Payment Details**\n\n"
+            "Please set your OPay account number and full name before requesting a withdrawal.\n"
+            "Send: `/setaccount <OPAY_NUMBER> <ACCOUNT_NAME>`",
             parse_mode="Markdown"
         )
         return
 
-    if usdt_bal < WITHDRAWAL_THRESHOLD:
-        needed = WITHDRAWAL_THRESHOLD - usdt_bal
+    if naira_bal < WITHDRAWAL_THRESHOLD_NGN:
+        needed = WITHDRAWAL_THRESHOLD_NGN - naira_bal
         await update.message.reply_text(
             f"❌ **Threshold Not Met**\n\n"
-            f"• Current Balance: `${usdt_bal:.2f} USDT`\n"
-            f"• Minimum Required: `${WITHDRAWAL_THRESHOLD:.2f} USDT`\n"
-            f"• You need `${needed:.2f} USDT` more to request a withdrawal.",
+            f"• Current Balance: `₦{naira_bal:,.2f}`\n"
+            f"• Minimum Required: `₦{WITHDRAWAL_THRESHOLD_NGN:,.2f}`\n"
+            f"• You need `₦{needed:,.2f}` more to request a withdrawal.",
             parse_mode="Markdown"
         )
         return
@@ -198,10 +212,11 @@ async def withdraw(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     await update.message.reply_text(
         f"✅ **Withdrawal Requested!**\n\n"
-        f"• **Amount:** `${usdt_bal:.2f} USDT`\n"
-        f"• **Network:** `BEP-20 (BNB Smart Chain)`\n"
-        f"• **Destination Wallet:** `{wallet}`\n\n"
-        f"Your payout request is submitted for batch processing.",
+        f"• **Amount:** `₦{naira_bal:,.2f}`\n"
+        f"• **Bank:** OPay\n"
+        f"• **Account Number:** `{opay_acc}`\n"
+        f"• **Account Name:** `{opay_name}`\n\n"
+        f"Your payout request has been queued for manual confirmation and processing.",
         parse_mode="Markdown"
     )
 
@@ -227,7 +242,7 @@ async def handle_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 status_text = " [FILLED]"
 
             keyboard.append([
-                InlineKeyboardButton(f"{cmp['title']} (+${cmp['reward_usdt']}){status_text}", callback_data=f"cmp_{cmp['id']}")
+                InlineKeyboardButton(f"{cmp['title']} (+₦{cmp.get('reward_usdt', 0)}){status_text}", callback_data=f"cmp_{cmp['id']}")
             ])
 
         reply_markup = InlineKeyboardMarkup(keyboard)
@@ -247,7 +262,7 @@ async def handle_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
         msg = (
             f"📌 **{cmp['title']}**\n\n"
             f"{cmp['description']}\n\n"
-            f"💰 **Reward:** ${cmp['reward_usdt']} USDT | {cmp['xp_reward']} XP\n"
+            f"💰 **Reward:** ₦{cmp.get('reward_usdt', 0)} Naira | {cmp['xp_reward']} XP\n"
             f"👥 **Spots Taken:** `{spots_info}`\n"
             f"🔗 **Link:** {cmp['action_url']}\n\n"
         )
@@ -261,13 +276,14 @@ async def handle_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     elif query.data == "my_profile":
         u = supabase.table("users").select("*").eq("telegram_id", query.from_user.id).single().execute().data
-        usdt_bal = float(u.get("usdt_balance") or 0.00)
+        naira_bal = float(u.get("usdt_balance") or 0.00)
         await query.message.reply_text(
             f"👤 **Profile**\n"
             f"• Username: @{u.get('username') or 'N/A'}\n"
             f"• XP Earned: {u.get('xp_points', 0)} XP\n"
-            f"• USDT Balance: `${usdt_bal:.2f}`\n"
-            f"• BEP-20 Wallet: `{u.get('usdt_address') or 'Not set'}`",
+            f"• Naira Balance: `₦{naira_bal:,.2f}`\n"
+            f"• OPay Number: `{u.get('usdt_address') or 'Not set'}`\n"
+            f"• OPay Name: `{u.get('opay_account_name') or 'Not set'}`",
             parse_mode="Markdown"
         )
 
@@ -295,8 +311,7 @@ async def handle_screenshot(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
             return
 
-    # 2. Check for existing submission
-        # 2. Check for existing VERIFIED or PENDING submission
+    # 2. Check for existing VERIFIED or PENDING submission
     try:
         existing = (
             supabase.table("submissions")
@@ -312,7 +327,6 @@ async def handle_screenshot(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return
     except Exception as e:
         print(f"Error checking duplicates: {e}")
-
 
     await update.message.reply_text("⏳ Processing screenshot...")
 
@@ -355,17 +369,17 @@ async def handle_screenshot(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         status = "VERIFIED" if (is_valid and confidence >= 0.85) else "REJECTED"
 
-        # Update existing or insert new submission
-supabase.table("submissions").upsert(
-    {
-        "telegram_id": user_id,
-        "campaign_id": campaign_id,
-        "proof_image_url": public_proof_url,
-        "status": status,
-        "ai_feedback": reason
-    },
-    on_conflict="telegram_id, campaign_id"
-).execute()
+        # Update existing or insert new submission using upsert
+        supabase.table("submissions").upsert(
+            {
+                "telegram_id": user_id,
+                "campaign_id": campaign_id,
+                "proof_image_url": public_proof_url,
+                "status": status,
+                "ai_feedback": reason
+            },
+            on_conflict="telegram_id, campaign_id"
+        ).execute()
 
         # Update User Rewards
         if status == "VERIFIED":
@@ -377,7 +391,7 @@ supabase.table("submissions").upsert(
             
             await update.message.reply_text(
                 f"✅ **Task Approved!**\n\n"
-                f"🎉 Rewards Earned: **+{cmp['xp_reward']} XP** | **+${cmp['reward_usdt']} USDT**\n"
+                f"🎉 Rewards Earned: **+{cmp['xp_reward']} XP** | **+₦{cmp.get('reward_usdt', 0)} Naira**\n"
                 f"💡 *AI Feedback:* {reason}",
                 parse_mode="Markdown"
             )
@@ -392,7 +406,7 @@ supabase.table("submissions").upsert(
     except Exception as err:
         print("ERROR IN HANDLE_SCREENSHOT:", traceback.format_exc())
         await update.message.reply_text(
-            f"⚠️️ Verification error: `{str(err)}`\nPlease re-upload your screenshot.",
+            f"⚠️ Verification error: `{str(err)}`\nPlease re-upload your screenshot.",
             parse_mode="Markdown"
         )
 
@@ -407,7 +421,8 @@ if __name__ == "__main__":
 
     # Register Command Handlers
     app.add_handler(CommandHandler("start", start))
-    app.add_handler(CommandHandler("setwallet", set_wallet))
+    app.add_handler(CommandHandler("setaccount", set_account))
+    app.add_handler(CommandHandler("setwallet", set_account)) # Alias for old command users
     app.add_handler(CommandHandler("balance", balance))
     app.add_handler(CommandHandler("campaigns", campaigns_command))
     app.add_handler(CommandHandler("withdraw", withdraw))
@@ -416,5 +431,5 @@ if __name__ == "__main__":
     app.add_handler(CallbackQueryHandler(handle_button))
     app.add_handler(MessageHandler(filters.PHOTO, handle_screenshot))
 
-    print("Bot is live with threshold limits and financial commands!")
+    print("Bot is live with OPay Naira payments and Account Name verification!")
     app.run_polling()
