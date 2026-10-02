@@ -25,7 +25,7 @@ SUPABASE_KEY = (
 )
 TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN")
 
-WITHDRAWAL_THRESHOLD_NGN = 1000.00  # Minimum ₦1,000 required to request withdrawal
+WITHDRAWAL_THRESHOLD_NGN = 5000.00  # Minimum ₦1,000 required to request withdrawal
 
 # Initialize Clients
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
