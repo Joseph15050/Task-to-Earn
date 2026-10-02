@@ -387,16 +387,19 @@ Return JSON strictly in this format:
         response = model.generate_content([prompt, {"mime_type": "image/jpeg", "data": bytes(image_bytes)}])
         clean_json_str = response.text.strip().replace("```json", "").replace("```", "").strip()
         result = json.loads(clean_json_str)
-        
-like_ok = result.get("like_verified", False)
-rt_ok = result.get("retweet_verified", False)
-is_valid = result.get("is_valid", False)
 
-# Strictly require all flags to be True
-if is_valid and like_ok and rt_ok and confidence >= 0.85:
-    status = "VERIFIED"
-else:
-    status = "REJECTED"
+        # Extract values safely from JSON response
+        confidence = float(result.get("confidence", 0.0))
+        reason = result.get("reason", "No detailed explanation provided.")
+        like_ok = result.get("like_verified", False)
+        rt_ok = result.get("retweet_verified", False)
+        is_valid = result.get("is_valid", False)
+
+        # Strictly require all verification flags to pass
+        if is_valid and like_ok and rt_ok and confidence >= 0.85:
+            status = "VERIFIED"
+        else:
+            status = "REJECTED"
 
         # Update existing or insert new submission using upsert
         supabase.table("submissions").upsert(
@@ -419,9 +422,9 @@ else:
             }).execute()
             
             await update.message.reply_text(
-                f"✅ **Task Approved!**\n\n"
+                f"✅ **Task Partially Approved!**\n\n"
                 f"🎉 Rewards Earned: **+{cmp['xp_reward']} XP** | **+₦{cmp.get('reward_usdt', 0)} Naira**\n"
-                f"💡 *AI Feedback:* {reason}",
+                f"💡 *Bot Feedback:* {reason}",
                 parse_mode="Markdown"
             )
         else:
@@ -435,10 +438,10 @@ else:
     except Exception as err:
         print("ERROR IN HANDLE_SCREENSHOT:", traceback.format_exc())
         await update.message.reply_text(
-            f"⚠️️ Verification error: `{str(err)}`\nPlease re-upload your screenshot.",
+            f"⚠️ Verification error: `{str(err)}`\nPlease re-upload your screenshot.",
             parse_mode="Markdown"
         )
-
+        
 
 # --- MAIN ENTRYPOINT ---
 
