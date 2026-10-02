@@ -117,7 +117,7 @@ async def set_account(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     supabase.table("users").update({
-        "usdt_address": clean_acc,
+        "opay_account_number": clean_acc,
         "opay_account_name": account_name
     }).eq("telegram_id", user_id).execute()
 
@@ -137,7 +137,7 @@ async def balance(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     naira_bal = float(u.get("usdt_balance") or 0.00)
     xp = u.get("xp_points", 0)
-    opay_acc = u.get("usdt_address") or "Not Set"
+    opay_acc = u.get("opay_account_number") or "Not Set"
     opay_name = u.get("opay_account_name") or "Not Set"
 
     msg = (
@@ -184,7 +184,7 @@ async def withdraw(update: Update, context: ContextTypes.DEFAULT_TYPE):
     u = res.data or {}
 
     naira_bal = float(u.get("usdt_balance") or 0.00)
-    opay_acc = u.get("usdt_address")
+    opay_acc = u.get("opay_account_number")
     opay_name = u.get("opay_account_name")
 
     if not opay_acc or opay_acc == "Not Set" or not opay_name:
@@ -282,7 +282,7 @@ async def handle_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f"• Username: @{u.get('username') or 'N/A'}\n"
             f"• XP Earned: {u.get('xp_points', 0)} XP\n"
             f"• Naira Balance: `₦{naira_bal:,.2f}`\n"
-            f"• OPay Number: `{u.get('usdt_address') or 'Not set'}`\n"
+            f"• OPay Number: `{u.get('opay_account_number') or 'Not set'}`\n"
             f"• OPay Name: `{u.get('opay_account_name') or 'Not set'}`",
             parse_mode="Markdown"
         )
@@ -406,7 +406,7 @@ async def handle_screenshot(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except Exception as err:
         print("ERROR IN HANDLE_SCREENSHOT:", traceback.format_exc())
         await update.message.reply_text(
-            f"⚠️ Verification error: `{str(err)}`\nPlease re-upload your screenshot.",
+            f"⚠️️ Verification error: `{str(err)}`\nPlease re-upload your screenshot.",
             parse_mode="Markdown"
         )
 
@@ -431,5 +431,5 @@ if __name__ == "__main__":
     app.add_handler(CallbackQueryHandler(handle_button))
     app.add_handler(MessageHandler(filters.PHOTO, handle_screenshot))
 
-    print("Bot is live with OPay Naira payments and Account Name verification!")
+    print("Bot is live with OPay Naira payments and updated schema!")
     app.run_polling()
