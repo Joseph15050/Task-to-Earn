@@ -365,27 +365,38 @@ async def handle_screenshot(update: Update, context: ContextTypes.DEFAULT_TYPE):
         # AI Verification using Gemini
         model = genai.GenerativeModel('gemini-3.5-flash-lite')
         prompt = f"""
-        Evaluate if this screenshot proves social media action completion.
-        Required Actions: {cmp['required_actions']}
-        Target Username: @{username}
+Evaluate if this screenshot proves ALL required actions were completed.
 
-        Return JSON strictly with format:
-        {{
-            "is_valid": boolean,
-            "confidence": float,
-            "reason": "short explanation"
-        }}
-        """
+Required Actions: {cmp['required_actions']} (e.g., MUST show BOTH Like AND Retweet active).
+Target Username: @{username}
 
+Analyze the UI carefully:
+1. Is the Like button activated (e.g., red heart)?
+2. Is the Retweet/Repost button activated (e.g., green highlight/active state)?
+
+Return JSON strictly in this format:
+{{
+    "like_verified": boolean,
+    "retweet_verified": boolean,
+    "is_valid": boolean,
+    "confidence": float,
+    "reason": "Explain specifically which actions were seen or missing"
+}}
+"""
+        
         response = model.generate_content([prompt, {"mime_type": "image/jpeg", "data": bytes(image_bytes)}])
         clean_json_str = response.text.strip().replace("```json", "").replace("```", "").strip()
         result = json.loads(clean_json_str)
+        
+like_ok = result.get("like_verified", False)
+rt_ok = result.get("retweet_verified", False)
+is_valid = result.get("is_valid", False)
 
-        is_valid = result.get("is_valid", False)
-        confidence = result.get("confidence", 0.0)
-        reason = result.get("reason", "No detailed explanation provided.")
-
-        status = "VERIFIED" if (is_valid and confidence >= 0.85) else "REJECTED"
+# Strictly require all flags to be True
+if is_valid and like_ok and rt_ok and confidence >= 0.85:
+    status = "VERIFIED"
+else:
+    status = "REJECTED"
 
         # Update existing or insert new submission using upsert
         supabase.table("submissions").upsert(
